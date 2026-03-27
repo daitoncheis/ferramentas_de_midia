@@ -1,0 +1,11 @@
+streamlit
+librosa
+yt-dlp
+openai-whisper
+requests
+edge-tts
+moviepy
+python-dotenv
+google-cloud-aiplatform
+pillow
+numpy
