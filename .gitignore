@@ -1,4 +1,8 @@
-google_creds.json
 .env
-videoTiktok/
+google_creds.json
+meus_uploads/
+tiktok_sounds/
+debug_videos/
+biblioteca_videos/
+__pycache__/
 venv/
