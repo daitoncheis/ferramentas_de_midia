@@ -15,7 +15,7 @@ import random
 import string
 import numpy as np
 import shutil
-import platform # Adicionado para detectar o sistema
+import platform # Adicionado para detetar o sistema operativo
 from io import BytesIO
 from dotenv import load_dotenv
 
@@ -41,13 +41,13 @@ PASTA_VIDEOS_LIB = "biblioteca_videos"
 if os.path.exists("google_creds.json"):
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "google_creds.json"
 
-# AJUSTE INTELIGENTE DO IMAGEMAGICK (Windows vs Nuvem/Linux)
+# AJUSTE DINÂMICO DO IMAGEMAGICK (Windows vs Linux/Nuvem)
 if platform.system() == "Windows":
     caminho_imagemagick = r"C:\Program Files\ImageMagick-7.1.1-Q16-HDRI\magick.exe"
     change_settings({"IMAGEMAGICK_BINARY": caminho_imagemagick})
     caminho_fonte = r"C:\Windows\Fonts\arialbd.ttf"
 else:
-    # No Streamlit Cloud, o binário já está no PATH
+    # No Streamlit Cloud, o binário é detetado automaticamente no PATH
     caminho_fonte = None 
 
 for p in [PASTA_SAIDA, PASTA_COLECOES, PASTA_UPLOADS, PASTA_SONS, PASTA_VIDEOS_LIB]:
@@ -122,9 +122,8 @@ def aplicar_zoom_dinamico(clip, duracao, modo='in'):
 st.set_page_config(page_title="G - IA Video Factory v8.5", layout="wide")
 escolha_aba = st.radio("Navegação", abas_nomes, horizontal=True, label_visibility="collapsed")
 
+# --- SIDEBAR (HISTÓRICO) ---
 st.sidebar.title(f"📊 Painel de Controle")
-
-# Seção de Histórico
 st.sidebar.markdown("### 🕒 Histórico de Downloads")
 if st.session_state.historico_producao:
     for item in st.session_state.historico_producao:
@@ -192,6 +191,7 @@ if escolha_aba == "🎥 Fábrica":
                 final_path = os.path.join(PASTA_SAIDA, "final.mp4")
                 vid_m.write_videofile(final_path, fps=24, codec="libx264")
                 st.video(final_path)
+                registrar_producao("final.mp4", "Fábrica Automática")
                 status.update(label="✅ Pronto!", state="complete")
                 st.balloons()
         except Exception as e: st.error(f"Erro: {e}")
@@ -204,7 +204,6 @@ elif escolha_aba == "🎬 CapCut":
         fotos = st.file_uploader("📸 Importar Fotos:", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
         som_lib = st.selectbox("🎙️ Som da Biblioteca:", ["Nenhum"] + listar_arquivos(PASTA_SONS, ".mp3"))
         musica_manual = st.file_uploader("📂 Upload Manual Áudio:", type=['mp3'])
-        
     with col_u2:
         modelo = st.selectbox("🎯 Escolha o Estilo:", list(MODELOS_EDICAO.keys()))
         cfg = MODELOS_EDICAO[modelo]
@@ -222,7 +221,6 @@ elif escolha_aba == "🎬 CapCut":
                 elif som_lib != "Nenhum":
                     c_audio = os.path.join(PASTA_SONS, som_lib)
 
-                # Lógica do Beat Sync
                 beat_times = []
                 if c_audio and modo_tempo == "Batida da Música (Beat Sync)":
                     y, sr = librosa.load(c_audio)
@@ -244,6 +242,10 @@ elif escolha_aba == "🎬 CapCut":
                 video = concatenate_videoclips(lista_c, method="compose")
                 if c_audio: video = video.set_audio(AudioFileClip(c_audio).set_duration(video.duration))
                 
+                if texto_cap:
+                    leg = TextClip(txt=texto_cap, font=caminho_fonte, fontsize=cfg['fontsize'], color=cfg['texto_cor'], stroke_color="black", stroke_width=1, method="caption", size=(800, 400))
+                    video = CompositeVideoClip([video, leg.set_duration(video.duration).set_position(("center", 1400))])
+
                 # CORREÇÃO DA VARIÁVEL DE HISTÓRICO
                 out_name = f"final_{int(time.time())}.mp4"
                 out_p = os.path.join(PASTA_SAIDA, out_name)
@@ -255,7 +257,7 @@ elif escolha_aba == "🎬 CapCut":
                 st.balloons()
         except Exception as e: st.error(f"Erro: {e}")
 
-# --- ABA 5: EXTRAÇÃO DE MÍDIA (CORRIGIDA COM IMPERSONATE) ---
+# --- ABA 5: EXTRAÇÃO DE MÍDIA (CORRIGIDA) ---
 elif escolha_aba == "📂 Extrair Mídia":
     st.header("📂 Extrair Mídia para Biblioteca")
     col_ex1, col_ex2 = st.columns(2)
@@ -278,9 +280,9 @@ elif escolha_aba == "📂 Extrair Mídia":
                     
                     c_f = os.path.join(base_p, n_final)
                     
-                    # Configuração de opções com camuflagem (impersonate)
+                    # OPÇÕES COM CORREÇÃO PARA COMPATIBILIDADE E CAMUFLAGEM
                     opts = {
-                        'impersonate': 'chrome', # Simula um navegador real
+                        'impersonate': 'chrome', # Disfarce para evitar bloqueios
                         'quiet': True
                     }
                     
@@ -291,20 +293,72 @@ elif escolha_aba == "📂 Extrair Mídia":
                             'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3'}]
                         })
                     else:
+                        # FORÇA O FORMATO MP4 PARA EXIBIÇÃO CORRETA NA NUVEM
                         opts.update({
                             'format': 'bestvideo[ext=mp4]/best[ext=mp4]/best', 
                             'outtmpl': c_f.replace('.mp4', ''), 
                             'postprocessors': [{'key': 'FFmpegVideoConvertor', 'preferedformat': 'mp4'}], 
-                            'postprocessor_args': ['-an']
+                            'postprocessor_args': ['-an'] # Remove o som
                         })
 
                     try:
-                        with yt_dlp.YoutubeDL(opts) as ydl:
-                            ydl.download([url_m])
-                        st.success(f"Salvo com sucesso: {n_final}")
+                        with yt_dlp.YoutubeDL(opts) as ydl: ydl.download([url_m])
+                        st.success(f"Salvo: {n_final}")
+                        registrar_producao(n_final, f"Extração: {tipo_m}")
                         st.rerun()
-                    except Exception as e:
-                        if "Impersonate target" in str(e):
-                            st.error("Erro técnico: A biblioteca 'curl_cffi' não foi encontrada. Verifique o arquivo requirements.txt.")
-                        else:
-                            st.error(f"Erro no download: {e}")
+                    except Exception as e: st.error(f"Erro: {e}")
+
+    with col_ex2:
+        st.subheader("📚 Biblioteca")
+        lib_e = st.selectbox("Ver:", ["🎵 Áudios", "🎬 Vídeos Mudos"])
+        p_alvo = PASTA_SONS if lib_e == "🎵 Áudios" else PASTA_VIDEOS_LIB
+        ex_alvo = ".mp3" if lib_e == "🎵 Áudios" else ".mp4"
+        
+        arqs = listar_arquivos(p_alvo, ex_alvo)
+        for a in arqs:
+            with st.expander(f"📄 {a}"):
+                if ex_alvo == ".mp3": st.audio(os.path.join(p_alvo, a))
+                else: st.video(os.path.join(p_alvo, a))
+                if st.button(f"🗑️ Excluir {a}", key=f"del_{a}"):
+                    os.remove(os.path.join(p_alvo, a))
+                    st.rerun()
+
+# --- ABA 3: COLEÇÕES ---
+elif escolha_aba == "🖼️ Coleções":
+    st.header("🖼️ Gerador de Coleções")
+    c1, c2, _ = st.columns([1,1,2])
+    if c1.button("✨ Estilo Mineiro"): 
+        st.session_state.prompt_temp = "Jovem fofo mineiro, cyberpunk, 8k."
+        st.rerun()
+    if c2.button("💡 Ideia Aleatória"):
+        st.session_state.prompt_temp = "Futuristic samurai Tokyo, 8k."
+        st.rerun()
+
+    p_in = st.text_area("Comando:", value=st.session_state.prompt_temp)
+    limite = st.number_input("Máximo:", value=10)
+    
+    if not st.session_state.gerando_infinito:
+        if st.button("▶️ INICIAR GERAÇÃO", type="primary"):
+            st.session_state.gerando_infinito = True
+            st.rerun()
+    else:
+        if st.button("🛑 PARAR AGORA"):
+            st.session_state.gerando_infinito = False
+            st.rerun()
+
+    if len(st.session_state.colecao_paths) > 0:
+        st.download_button("💾 Baixar ZIP", criar_zip(st.session_state.colecao_paths), "colecao.zip")
+
+    if st.session_state.gerando_infinito:
+        mod_inf = ImageGenerationModel.from_pretrained("imagen-3.0-generate-001")
+        while st.session_state.gerando_infinito and len(st.session_state.colecao_paths) < limite:
+            time.sleep(25)
+            salt = ''.join(random.choices(string.ascii_uppercase, k=4))
+            try:
+                res = mod_inf.generate_images(prompt=f"{p_in} --seed {salt}", number_of_images=1, aspect_ratio="9:16")
+                path = os.path.join(PASTA_COLECOES, f"img_{salt}.png")
+                res[0].save(location=path, include_generation_parameters=False)
+                st.session_state.colecao_paths.append(path)
+                st.image(path, width=300)
+            except: pass
+            if not st.session_state.gerando_infinito: break
