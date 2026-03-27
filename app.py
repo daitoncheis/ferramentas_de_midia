@@ -295,6 +295,8 @@ elif escolha_aba == "🎬 CapCut":
 
                 out_p = os.path.join(PASTA_SAIDA, "preview.mp4" if is_preview else "final.mp4")
                 video.write_videofile(out_p, fps=15 if is_preview else 24, codec="libx264")
+                video.write_videofile(out_p, fps=24, codec="libx264")
+                registrar_producao(out_name, f"CapCut: {modelo}")
                 
                 status.update(label="✅ CONCLUÍDO!", state="complete")
                 st.video(out_p)
