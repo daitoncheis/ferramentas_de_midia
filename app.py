@@ -178,8 +178,8 @@ elif escolha_aba == "📂 Extrair Mídia":
             c_f = os.path.join(base_p, n_final)
             
             opts = {
-                'impersonate': 'chrome', # Disfarce essencial
-                'quiet': True,
+            'impersonate': 'chrome', # Simula um navegador real
+            'quiet': True,
                 'outtmpl': c_f.replace(ext, '')
             }
             if tipo_m == "Áudio (MP3)":
