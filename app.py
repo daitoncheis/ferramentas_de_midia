@@ -69,6 +69,16 @@ if "gerando_infinito" not in st.session_state: st.session_state.gerando_infinito
 if "colecao_paths" not in st.session_state: st.session_state.colecao_paths = []
 if "temp_imgs" not in st.session_state: st.session_state.temp_imgs = []
 if "prompt_temp" not in st.session_state: st.session_state.prompt_temp = ""
+if "historico_producao" not in st.session_state:
+    st.session_state.historico_producao = []
+
+def registrar_producao(nome_arquivo, tipo):
+    hora = datetime.datetime.now().strftime("%H:%M:%S")
+    st.session_state.historico_producao.insert(0, {
+        "hora": hora, 
+        "arquivo": nome_arquivo, 
+        "tipo": tipo
+    })
 
 # --- FUNÇÕES AUXILIARES ---
 def adicionar_log(msg, aba_atual):
@@ -106,9 +116,24 @@ st.set_page_config(page_title="G - IA Video Factory v8.0", layout="wide")
 
 escolha_aba = st.radio("Navegação", abas_nomes, horizontal=True, label_visibility="collapsed")
 
-st.sidebar.title(f"📄 Log: {escolha_aba}")
-if st.sidebar.button("🗑️ Limpar este Log"):
-    st.session_state[f"log_{escolha_aba}"] = f"Log limpo.\n"
+st.sidebar.title(f"📊 Painel de Controle")
+
+# Seção de Histórico
+st.sidebar.markdown("### 🕒 Histórico de Downloads")
+if st.session_state.historico_producao:
+    for item in st.session_state.historico_producao:
+        with st.sidebar.expander(f"✅ {item['hora']} - {item['tipo']}"):
+            st.write(f"📄 {item['arquivo']}")
+            # Opcional: Adicionar um botão de log específico se quiser
+    
+    if st.sidebar.button("🗑️ Limpar Histórico"):
+        st.session_state.historico_producao = []
+        st.rerun()
+else:
+    st.sidebar.info("Nenhum vídeo gerado nesta sessão.")
+
+st.sidebar.divider()
+st.sidebar.markdown(f"**Log Atual:** {escolha_aba}")
 st.sidebar.code(st.session_state[f"log_{escolha_aba}"])
 
 # --- ABA 1: FÁBRICA ---
