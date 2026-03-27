@@ -8,3 +8,6 @@ colecoes_ia/
 __pycache__/
 venv/
 videoTiktok/
+ffmpeg.exe
+ffprobe.exe
+ffplay.exe

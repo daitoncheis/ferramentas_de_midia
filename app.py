@@ -15,7 +15,7 @@ import random
 import string
 import numpy as np
 import shutil
-import platform
+import platform # Adicionado para detectar o sistema
 from io import BytesIO
 from dotenv import load_dotenv
 
@@ -38,16 +38,16 @@ PASTA_UPLOADS = "meus_uploads"
 PASTA_SONS = "tiktok_sounds"
 PASTA_VIDEOS_LIB = "biblioteca_videos"
 
-# CONFIGURAÇÃO DE CREDENCIAIS
 if os.path.exists("google_creds.json"):
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "google_creds.json"
 
-# CONFIGURAÇÃO DO IMAGEMAGICK (Nuvem vs Local)
+# AJUSTE INTELIGENTE DO IMAGEMAGICK (Windows vs Nuvem/Linux)
 if platform.system() == "Windows":
     caminho_imagemagick = r"C:\Program Files\ImageMagick-7.1.1-Q16-HDRI\magick.exe"
     change_settings({"IMAGEMAGICK_BINARY": caminho_imagemagick})
     caminho_fonte = r"C:\Windows\Fonts\arialbd.ttf"
 else:
+    # No Streamlit Cloud, o binário já está no PATH
     caminho_fonte = None 
 
 for p in [PASTA_SAIDA, PASTA_COLECOES, PASTA_UPLOADS, PASTA_SONS, PASTA_VIDEOS_LIB]:
@@ -69,7 +69,7 @@ MODELOS_EDICAO = {
 if "historico_producao" not in st.session_state:
     st.session_state.historico_producao = []
 
-abas_nomes = ["🎥 Fábrica", "🛠️ VEO 3", "🖼️ Coleções", "🎬 CapCut", "📂 Extração Completa"]
+abas_nomes = ["🎥 Fábrica", "🛠️ VEO 3", "🖼️ Coleções", "🎬 CapCut", "📂 Extrair Mídia"]
 for aba in abas_nomes:
     if f"log_{aba}" not in st.session_state:
         st.session_state[f"log_{aba}"] = f"Log de {aba} iniciado.\n"
@@ -79,11 +79,15 @@ if "colecao_paths" not in st.session_state: st.session_state.colecao_paths = []
 if "temp_imgs" not in st.session_state: st.session_state.temp_imgs = []
 if "prompt_temp" not in st.session_state: st.session_state.prompt_temp = ""
 
-# --- FUNÇÕES AUXILIARES ---
 def registrar_producao(nome_arquivo, tipo):
     hora = datetime.datetime.now().strftime("%H:%M:%S")
-    st.session_state.historico_producao.insert(0, {"hora": hora, "arquivo": nome_arquivo, "tipo": tipo})
+    st.session_state.historico_producao.insert(0, {
+        "hora": hora, 
+        "arquivo": nome_arquivo, 
+        "tipo": tipo
+    })
 
+# --- FUNÇÕES AUXILIARES ---
 def adicionar_log(msg, aba_atual):
     hora = datetime.datetime.now().strftime("%H:%M:%S")
     st.session_state[f"log_{aba_atual}"] += f"[{hora}] {msg}\n"
@@ -115,21 +119,23 @@ def aplicar_zoom_dinamico(clip, duracao, modo='in'):
     return clip.resize(lambda t: 1.15 - 0.05 * t).set_duration(duracao)
 
 # --- 2. INTERFACE ---
-st.set_page_config(page_title="G - IA Video Factory v8.4", layout="wide")
+st.set_page_config(page_title="G - IA Video Factory v8.5", layout="wide")
 escolha_aba = st.radio("Navegação", abas_nomes, horizontal=True, label_visibility="collapsed")
 
-# --- SIDEBAR ---
 st.sidebar.title(f"📊 Painel de Controle")
-st.sidebar.markdown("### 🕒 Histórico da Sessão")
+
+# Seção de Histórico
+st.sidebar.markdown("### 🕒 Histórico de Downloads")
 if st.session_state.historico_producao:
     for item in st.session_state.historico_producao:
         with st.sidebar.expander(f"✅ {item['hora']} - {item['tipo']}"):
             st.write(f"📄 {item['arquivo']}")
+    
     if st.sidebar.button("🗑️ Limpar Histórico"):
         st.session_state.historico_producao = []
         st.rerun()
 else:
-    st.sidebar.info("Nenhum arquivo gerado.")
+    st.sidebar.info("Nenhum vídeo gerado.")
 
 st.sidebar.divider()
 st.sidebar.code(st.session_state[f"log_{escolha_aba}"])
@@ -139,15 +145,15 @@ if escolha_aba == "🎥 Fábrica":
     st.header("🎥 Fábrica de Vídeos Automática")
     url_v = st.text_input("🔗 Link do vídeo original:")
     voz_v = st.selectbox("🎙️ Voz IA:", ["pt-BR-AntonioNeural", "pt-BR-FranciscaNeural"])
+    
     col_f1, col_f2 = st.columns(2)
     btn_start = col_f1.button("🚀 INICIAR PROCESSO", use_container_width=True, type="primary")
     
     if os.path.exists(os.path.join(PASTA_SAIDA, 'original.mp3')):
         if col_f2.button("💾 SALVAR ÁUDIO NA BIBLIOTECA", use_container_width=True):
-            novo_n = f"Fabrica_{datetime.datetime.now().strftime('%H%M%S')}.mp3"
+            novo_n = f"Extraido_{datetime.datetime.now().strftime('%H%M%S')}.mp3"
             shutil.copy(os.path.join(PASTA_SAIDA, 'original.mp3'), os.path.join(PASTA_SONS, novo_n))
             st.success(f"Salvo: {novo_n}")
-            registrar_producao(novo_n, "Áudio da Fábrica")
 
     if btn_start and url_v:
         try:
@@ -185,58 +191,15 @@ if escolha_aba == "🎥 Fábrica":
                 vid_m = CompositeVideoClip([concatenate_videoclips(clips_m, method="compose"), leg_m.set_duration(audio.duration).set_position("center")]).set_audio(audio)
                 final_path = os.path.join(PASTA_SAIDA, "final.mp4")
                 vid_m.write_videofile(final_path, fps=24, codec="libx264")
-                
                 st.video(final_path)
-                registrar_producao("final.mp4", "Fábrica Automática")
-                status.update(label="✅ Concluído!", state="complete")
+                status.update(label="✅ Pronto!", state="complete")
                 st.balloons()
         except Exception as e: st.error(f"Erro: {e}")
-
-# --- ABA 3: COLEÇÕES ---
-elif escolha_aba == "🖼️ Coleções":
-    st.header("🖼️ Gerador de Coleções Infinito")
-    c1, c2, _ = st.columns([1,1,2])
-    if c1.button("✨ Estilo Mineiro"): 
-        st.session_state.prompt_temp = "Jovem fofo mineiro, cyberpunk, 8k."
-        st.rerun()
-    if c2.button("💡 Ideia Aleatória"):
-        st.session_state.prompt_temp = "Futuristic samurai Tokyo, 8k."
-        st.rerun()
-
-    p_in = st.text_area("Comando:", value=st.session_state.prompt_temp)
-    limite = st.number_input("Máximo de imagens:", value=10)
-    
-    if not st.session_state.gerando_infinito:
-        if st.button("▶️ INICIAR GERAÇÃO", type="primary"):
-            st.session_state.gerando_infinito = True
-            st.rerun()
-    else:
-        if st.button("🛑 PARAR AGORA"):
-            st.session_state.gerando_infinito = False
-            st.rerun()
-
-    if len(st.session_state.colecao_paths) > 0:
-        st.download_button("💾 Baixar ZIP", criar_zip(st.session_state.colecao_paths), "colecao.zip")
-
-    if st.session_state.gerando_infinito:
-        mod_inf = ImageGenerationModel.from_pretrained("imagen-3.0-generate-001")
-        while st.session_state.gerando_infinito and len(st.session_state.colecao_paths) < limite:
-            time.sleep(25)
-            salt = ''.join(random.choices(string.ascii_uppercase, k=4))
-            try:
-                res = mod_inf.generate_images(prompt=f"{p_in} --seed {salt}", number_of_images=1, aspect_ratio="9:16")
-                path = os.path.join(PASTA_COLECOES, f"img_{salt}.png")
-                res[0].save(location=path, include_generation_parameters=False)
-                st.session_state.colecao_paths.append(path)
-                st.image(path, width=300)
-            except: pass
-            if not st.session_state.gerando_infinito: break
 
 # --- ABA 4: CAPCUT (CORRIGIDA) ---
 elif escolha_aba == "🎬 CapCut":
     st.header("🎬 Editor Estilo CapCut")
     col_u1, col_u2 = st.columns(2)
-    
     with col_u1:
         fotos = st.file_uploader("📸 Importar Fotos:", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
         som_lib = st.selectbox("🎙️ Som da Biblioteca:", ["Nenhum"] + listar_arquivos(PASTA_SONS, ".mp3"))
@@ -245,19 +208,13 @@ elif escolha_aba == "🎬 CapCut":
     with col_u2:
         modelo = st.selectbox("🎯 Escolha o Estilo:", list(MODELOS_EDICAO.keys()))
         cfg = MODELOS_EDICAO[modelo]
-        st.markdown("---")
         modo_tempo = st.radio("⏱️ Modo de Troca:", ["Manual", "Batida da Música (Beat Sync)"])
-        vel_manual = st.slider("Velocidade (segundos):", 0.1, 5.0, 1.5) if modo_tempo == "Manual" else 1.0
+        vel_manual = st.slider("Velocidade (seg):", 0.1, 5.0, 1.5) if modo_tempo == "Manual" else 1.0
         texto_cap = st.text_input("📝 Legenda:", "Dayton Preview")
 
-    col_btn1, col_btn2 = st.columns(2)
-    btn_preview = col_btn1.button("👁️ PREVIEW RÁPIDO", use_container_width=True)
-    btn_final = col_btn2.button("🚀 RENDER FINAL (HQ)", use_container_width=True, type="primary")
-
-    if (btn_preview or btn_final) and fotos:
-        is_preview = btn_preview
+    if st.button("🚀 RENDER FINAL (HQ)", use_container_width=True, type="primary") and fotos:
         try:
-            with st.status("🎬 Processando..." if not is_preview else "👁️ Gerando Preview...") as status:
+            with st.status("🎬 Editando...") as status:
                 c_audio = None
                 if musica_manual:
                     c_audio = os.path.join(PASTA_UPLOADS, "t_audio.mp3")
@@ -265,6 +222,7 @@ elif escolha_aba == "🎬 CapCut":
                 elif som_lib != "Nenhum":
                     c_audio = os.path.join(PASTA_SONS, som_lib)
 
+                # Lógica do Beat Sync
                 beat_times = []
                 if c_audio and modo_tempo == "Batida da Música (Beat Sync)":
                     y, sr = librosa.load(c_audio)
@@ -276,9 +234,7 @@ elif escolha_aba == "🎬 CapCut":
                     dur = beat_times[i+1]-beat_times[i] if (modo_tempo == "Batida da Música (Beat Sync)" and i < len(beat_times)-1) else vel_manual
                     path = os.path.join(PASTA_UPLOADS, f"u_{i}.png")
                     with open(path, "wb") as out: out.write(f_up.getbuffer())
-                    
-                    res_h = 480 if is_preview else 1920
-                    c = ImageClip(path).set_duration(dur).resize(height=res_h)
+                    c = ImageClip(path).set_duration(dur).resize(height=1920)
                     c = aplicar_estilo_visual(c, cfg['cor'])
                     m = cfg['zoom']
                     if m == "alternado": m = "in" if i % 2 == 0 else "out"
@@ -288,28 +244,18 @@ elif escolha_aba == "🎬 CapCut":
                 video = concatenate_videoclips(lista_c, method="compose")
                 if c_audio: video = video.set_audio(AudioFileClip(c_audio).set_duration(video.duration))
                 
-                if texto_cap:
-                    leg = TextClip(txt=texto_cap, font=caminho_fonte, fontsize=cfg['fontsize'], color=cfg['texto_cor'], stroke_color="black", stroke_width=1, method="caption", size=(800, 400))
-                    video = CompositeVideoClip([video, leg.set_duration(video.duration).set_position(("center", 1400))])
-
-                # Definição correta do nome do ficheiro para o histórico
-                out_name = "preview.mp4" if is_preview else f"final_{int(time.time())}.mp4"
+                # CORREÇÃO DA VARIÁVEL DE HISTÓRICO
+                out_name = f"final_{int(time.time())}.mp4"
                 out_p = os.path.join(PASTA_SAIDA, out_name)
-                
-                # Renderização (removida a linha duplicada)
-                video.write_videofile(out_p, fps=15 if is_preview else 24, codec="libx264")
-                
-                # Registo no histórico usando a variável correta
+                video.write_videofile(out_p, fps=24, codec="libx264")
                 registrar_producao(out_name, f"CapCut: {modelo}")
                 
                 status.update(label="✅ CONCLUÍDO!", state="complete")
                 st.video(out_p)
-                if not is_preview: 
-                    st.balloons()
-                    with open(out_p, "rb") as f_down: st.download_button("💾 BAIXAR MP4", f_down, out_name, use_container_width=True)
+                st.balloons()
         except Exception as e: st.error(f"Erro: {e}")
 
-# --- ABA 5: EXTRAÇÃO DUAL ---
+# --- ABA 5: EXTRAÇÃO DE MÍDIA (CORRIGIDA COM IMPERSONATE) ---
 elif escolha_aba == "📂 Extrair Mídia":
     st.header("📂 Extrair Mídia para Biblioteca")
     col_ex1, col_ex2 = st.columns(2)
@@ -331,28 +277,34 @@ elif escolha_aba == "📂 Extrair Mídia":
                         count += 1
                     
                     c_f = os.path.join(base_p, n_final)
+                    
+                    # Configuração de opções com camuflagem (impersonate)
+                    opts = {
+                        'impersonate': 'chrome', # Simula um navegador real
+                        'quiet': True
+                    }
+                    
                     if tipo_m == "Áudio (MP3)":
-                        opts = {'format': 'bestaudio/best', 'outtmpl': c_f.replace('.mp3', ''), 'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3'}], 'quiet': True}
+                        opts.update({
+                            'format': 'bestaudio/best',
+                            'outtmpl': c_f.replace('.mp3', ''),
+                            'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3'}]
+                        })
                     else:
-                        opts = {'format': 'bestvideo/best', 'outtmpl': c_f.replace('.mp4', ''), 'postprocessors': [{'key': 'FFmpegVideoConvertor', 'preferedformat': 'mp4'}], 'postprocessor_args': ['-an'], 'quiet': True}
+                        opts.update({
+                            'format': 'bestvideo[ext=mp4]/best[ext=mp4]/best', 
+                            'outtmpl': c_f.replace('.mp4', ''), 
+                            'postprocessors': [{'key': 'FFmpegVideoConvertor', 'preferedformat': 'mp4'}], 
+                            'postprocessor_args': ['-an']
+                        })
 
                     try:
-                        with yt_dlp.YoutubeDL(opts) as ydl: ydl.download([url_m])
-                        st.success(f"Salvo: {n_final}")
+                        with yt_dlp.YoutubeDL(opts) as ydl:
+                            ydl.download([url_m])
+                        st.success(f"Salvo com sucesso: {n_final}")
                         st.rerun()
-                    except Exception as e: st.error(e)
-
-    with col_ex2:
-        st.subheader("📚 Biblioteca")
-        lib_e = st.selectbox("Ver:", ["🎵 Áudios", "🎬 Vídeos Mudos"])
-        p_alvo = PASTA_SONS if lib_e == "🎵 Áudios" else PASTA_VIDEOS_LIB
-        ex_alvo = ".mp3" if lib_e == "🎵 Áudios" else ".mp4"
-        
-        arqs = listar_arquivos(p_alvo, ex_alvo)
-        for a in arqs:
-            with st.expander(f"📄 {a}"):
-                if ex_alvo == ".mp3": st.audio(os.path.join(p_alvo, a))
-                else: st.video(os.path.join(p_alvo, a))
-                if st.button(f"🗑️ Excluir {a}"):
-                    os.remove(os.path.join(p_alvo, a))
-                    st.rerun()
+                    except Exception as e:
+                        if "Impersonate target" in str(e):
+                            st.error("Erro técnico: A biblioteca 'curl_cffi' não foi encontrada. Verifique o arquivo requirements.txt.")
+                        else:
+                            st.error(f"Erro no download: {e}")

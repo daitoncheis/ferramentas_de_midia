@@ -1,6 +1,7 @@
 streamlit
 librosa
 yt-dlp
+curl_cffi
 openai-whisper
 requests
 edge-tts
