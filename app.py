@@ -232,14 +232,16 @@ elif escolha_aba == "🖼️ Coleções":
             except: pass
             if not st.session_state.gerando_infinito: break
 
-# --- ABA 4: CAPCUT ---
+# --- ABA 4: CAPCUT (CORRIGIDA) ---
 elif escolha_aba == "🎬 CapCut":
     st.header("🎬 Editor Estilo CapCut")
     col_u1, col_u2 = st.columns(2)
+    
     with col_u1:
         fotos = st.file_uploader("📸 Importar Fotos:", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
         som_lib = st.selectbox("🎙️ Som da Biblioteca:", ["Nenhum"] + listar_arquivos(PASTA_SONS, ".mp3"))
         musica_manual = st.file_uploader("📂 Upload Manual Áudio:", type=['mp3'])
+        
     with col_u2:
         modelo = st.selectbox("🎯 Escolha o Estilo:", list(MODELOS_EDICAO.keys()))
         cfg = MODELOS_EDICAO[modelo]
@@ -255,7 +257,7 @@ elif escolha_aba == "🎬 CapCut":
     if (btn_preview or btn_final) and fotos:
         is_preview = btn_preview
         try:
-            with st.status("🎬 Processando...") as status:
+            with st.status("🎬 Processando..." if not is_preview else "👁️ Gerando Preview...") as status:
                 c_audio = None
                 if musica_manual:
                     c_audio = os.path.join(PASTA_UPLOADS, "t_audio.mp3")
@@ -290,63 +292,67 @@ elif escolha_aba == "🎬 CapCut":
                     leg = TextClip(txt=texto_cap, font=caminho_fonte, fontsize=cfg['fontsize'], color=cfg['texto_cor'], stroke_color="black", stroke_width=1, method="caption", size=(800, 400))
                     video = CompositeVideoClip([video, leg.set_duration(video.duration).set_position(("center", 1400))])
 
-                out_name = "preview.mp4" if is_preview else "final.mp4"
+                # Definição correta do nome do ficheiro para o histórico
+                out_name = "preview.mp4" if is_preview else f"final_{int(time.time())}.mp4"
                 out_p = os.path.join(PASTA_SAIDA, out_name)
+                
+                # Renderização (removida a linha duplicada)
                 video.write_videofile(out_p, fps=15 if is_preview else 24, codec="libx264")
                 
+                # Registo no histórico usando a variável correta
                 registrar_producao(out_name, f"CapCut: {modelo}")
-                status.update(label="✅ Sucesso!", state="complete")
+                
+                status.update(label="✅ CONCLUÍDO!", state="complete")
                 st.video(out_p)
                 if not is_preview: 
                     st.balloons()
-                    with open(out_p, "rb") as f_down: st.download_button("💾 BAIXAR MP4", f_down, "video.mp4", use_container_width=True)
+                    with open(out_p, "rb") as f_down: st.download_button("💾 BAIXAR MP4", f_down, out_name, use_container_width=True)
         except Exception as e: st.error(f"Erro: {e}")
 
 # --- ABA 5: EXTRAÇÃO DUAL ---
-elif escolha_aba == "📂 Extração Completa":
-    st.header("📂 Extração Dual de Mídia")
-    st.write("Extraia o áudio (MP3) e o vídeo mudo (MP4) de uma só vez.")
+elif escolha_aba == "📂 Extrair Mídia":
+    st.header("📂 Extrair Mídia para Biblioteca")
     col_ex1, col_ex2 = st.columns(2)
     with col_ex1:
+        st.subheader("📥 Nova Extração")
         url_m = st.text_input("🔗 Link YT/TikTok:")
-        nome_m = st.text_input("🏷️ Nome Base:")
-        if st.button("🚀 INICIAR EXTRAÇÃO DUAL", type="primary"):
+        nome_m = st.text_input("🏷️ Nome para Salvar:")
+        tipo_m = st.radio("📦 Tipo:", ["Áudio (MP3)", "Vídeo Mudo (MP4)"])
+        
+        if st.button("🚀 EXECUTAR EXTRAÇÃO", type="primary"):
             if url_m and nome_m:
-                with st.status("Extraindo...") as status:
+                with st.spinner("Baixando..."):
+                    base_p = PASTA_SONS if tipo_m == "Áudio (MP3)" else PASTA_VIDEOS_LIB
+                    ext = ".mp3" if tipo_m == "Áudio (MP3)" else ".mp4"
+                    n_final = f"{nome_m}{ext}"
                     count = 1
-                    n_audio = f"{nome_m}.mp3"
-                    n_video = f"{nome_m}.mp4"
-                    while os.path.exists(os.path.join(PASTA_SONS, n_audio)):
-                        n_audio = f"{nome_m} ({count}).mp3"
-                        n_video = f"{nome_m} ({count}).mp4"
+                    while os.path.exists(os.path.join(base_p, n_final)):
+                        n_final = f"{nome_m} ({count}){ext}"
                         count += 1
                     
-                    c_a = os.path.join(PASTA_SONS, n_audio)
-                    c_v = os.path.join(PASTA_VIDEOS_LIB, n_video)
-
-                    opts_a = {'format': 'bestaudio/best', 'outtmpl': c_a.replace('.mp3', ''), 'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3'}], 'quiet': True}
-                    opts_v = {'format': 'bestvideo/best', 'outtmpl': c_v.replace('.mp4', ''), 'postprocessors': [{'key': 'FFmpegVideoConvertor', 'preferedformat': 'mp4'}], 'postprocessor_args': ['-an'], 'quiet': True}
+                    c_f = os.path.join(base_p, n_final)
+                    if tipo_m == "Áudio (MP3)":
+                        opts = {'format': 'bestaudio/best', 'outtmpl': c_f.replace('.mp3', ''), 'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3'}], 'quiet': True}
+                    else:
+                        opts = {'format': 'bestvideo/best', 'outtmpl': c_f.replace('.mp4', ''), 'postprocessors': [{'key': 'FFmpegVideoConvertor', 'preferedformat': 'mp4'}], 'postprocessor_args': ['-an'], 'quiet': True}
 
                     try:
-                        with yt_dlp.YoutubeDL(opts_a) as ydl_a: ydl_a.download([url_m])
-                        with yt_dlp.YoutubeDL(opts_v) as ydl_v: ydl_v.download([url_m])
-                        st.success(f"Salvos: {n_audio} e {n_video}")
-                        registrar_producao(n_audio, "Som Extraído")
-                        registrar_producao(n_video, "Vídeo Mudo")
-                        status.update(label="✅ Extração Concluída!", state="complete")
-                        st.balloons()
+                        with yt_dlp.YoutubeDL(opts) as ydl: ydl.download([url_m])
+                        st.success(f"Salvo: {n_final}")
+                        st.rerun()
                     except Exception as e: st.error(e)
 
     with col_ex2:
-        st.subheader("📚 Bibliotecas")
+        st.subheader("📚 Biblioteca")
         lib_e = st.selectbox("Ver:", ["🎵 Áudios", "🎬 Vídeos Mudos"])
-        p_alvo = PASTA_SONS if "Áudios" in lib_e else PASTA_VIDEOS_LIB
-        ex_alvo = ".mp3" if "Áudios" in lib_e else ".mp4"
+        p_alvo = PASTA_SONS if lib_e == "🎵 Áudios" else PASTA_VIDEOS_LIB
+        ex_alvo = ".mp3" if lib_e == "🎵 Áudios" else ".mp4"
+        
         arqs = listar_arquivos(p_alvo, ex_alvo)
         for a in arqs:
             with st.expander(f"📄 {a}"):
                 if ex_alvo == ".mp3": st.audio(os.path.join(p_alvo, a))
                 else: st.video(os.path.join(p_alvo, a))
-                if st.button(f"🗑️ Excluir {a}", key=f"del_{a}"):
+                if st.button(f"🗑️ Excluir {a}"):
                     os.remove(os.path.join(p_alvo, a))
                     st.rerun()
