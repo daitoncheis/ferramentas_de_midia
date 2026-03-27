@@ -15,6 +15,7 @@ import random
 import string
 import numpy as np
 import shutil
+import platform
 from io import BytesIO
 from dotenv import load_dotenv
 
@@ -37,12 +38,18 @@ PASTA_UPLOADS = "meus_uploads"
 PASTA_SONS = "tiktok_sounds"
 PASTA_VIDEOS_LIB = "biblioteca_videos"
 
+# CONFIGURAÇÃO INTELIGENTE DE CREDENCIAIS
 if os.path.exists("google_creds.json"):
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "google_creds.json"
 
-caminho_imagemagick = r"C:\Program Files\ImageMagick-7.1.1-Q16-HDRI\magick.exe"
-change_settings({"IMAGEMAGICK_BINARY": caminho_imagemagick})
-caminho_fonte = r"C:\Windows\Fonts\arialbd.ttf"
+# CONFIGURAÇÃO INTELIGENTE DO IMAGEMAGICK (Nuvem vs Local)
+if platform.system() == "Windows":
+    caminho_imagemagick = r"C:\Program Files\ImageMagick-7.1.1-Q16-HDRI\magick.exe"
+    change_settings({"IMAGEMAGICK_BINARY": caminho_imagemagick})
+    caminho_fonte = r"C:\Windows\Fonts\arialbd.ttf"
+else:
+    # No Streamlit Cloud (Linux), ele busca no Path automaticamente
+    caminho_fonte = None 
 
 for p in [PASTA_SAIDA, PASTA_COLECOES, PASTA_UPLOADS, PASTA_SONS, PASTA_VIDEOS_LIB]:
     if not os.path.exists(p): os.makedirs(p)
@@ -112,19 +119,18 @@ def aplicar_zoom_dinamico(clip, duracao, modo='in'):
     return clip.resize(lambda t: 1.15 - 0.05 * t).set_duration(duracao)
 
 # --- 2. INTERFACE ---
-st.set_page_config(page_title="G - IA Video Factory v8.0", layout="wide")
+st.set_page_config(page_title="G - IA Video Factory v8.3", layout="wide")
 
 escolha_aba = st.radio("Navegação", abas_nomes, horizontal=True, label_visibility="collapsed")
 
+# --- SIDEBAR ATUALIZADA ---
 st.sidebar.title(f"📊 Painel de Controle")
 
-# Seção de Histórico
 st.sidebar.markdown("### 🕒 Histórico de Downloads")
 if st.session_state.historico_producao:
     for item in st.session_state.historico_producao:
         with st.sidebar.expander(f"✅ {item['hora']} - {item['tipo']}"):
             st.write(f"📄 {item['arquivo']}")
-            # Opcional: Adicionar um botão de log específico se quiser
     
     if st.sidebar.button("🗑️ Limpar Histórico"):
         st.session_state.historico_producao = []
@@ -136,7 +142,8 @@ st.sidebar.divider()
 st.sidebar.markdown(f"**Log Atual:** {escolha_aba}")
 st.sidebar.code(st.session_state[f"log_{escolha_aba}"])
 
-# --- ABA 1: FÁBRICA ---
+# --- LÓGICA DE ABAS ---
+
 if escolha_aba == "🎥 Fábrica":
     st.header("🎥 Fábrica de Vídeos Automática")
     url_v = st.text_input("🔗 Link do vídeo original:")
@@ -154,7 +161,6 @@ if escolha_aba == "🎥 Fábrica":
     if btn_start and url_v:
         try:
             st.session_state.temp_imgs = []
-            prog = st.progress(0)
             with st.status("🛠️ Processando...") as status:
                 tmp = os.path.join(PASTA_SAIDA, 'original.mp3')
                 ydl_opts = {'format': 'bestaudio/best', 'outtmpl': tmp.replace('.mp3', ''), 'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3'}], 'quiet': True}
@@ -188,52 +194,12 @@ if escolha_aba == "🎥 Fábrica":
                 vid_m = CompositeVideoClip([concatenate_videoclips(clips_m, method="compose"), leg_m.set_duration(audio.duration).set_position("center")]).set_audio(audio)
                 final_path = os.path.join(PASTA_SAIDA, "final.mp4")
                 vid_m.write_videofile(final_path, fps=24, codec="libx264")
+                registrar_producao("final.mp4", "Fábrica Automática")
                 st.video(final_path)
                 status.update(label="✅ Pronto!", state="complete")
                 st.balloons()
         except Exception as e: st.error(f"Erro: {e}")
 
-# --- ABA 3: COLEÇÕES ---
-elif escolha_aba == "🖼️ Coleções":
-    st.header("🖼️ Gerador de Coleções")
-    c1, c2, _ = st.columns([1,1,2])
-    if c1.button("✨ Estilo Mineiro"): 
-        st.session_state.prompt_temp = "Jovem fofo mineiro, cyberpunk, 8k."
-        st.rerun()
-    if c2.button("💡 Ideia Aleatória"):
-        st.session_state.prompt_temp = "Futuristic samurai Tokyo, 8k."
-        st.rerun()
-
-    p_in = st.text_area("Comando:", value=st.session_state.prompt_temp)
-    limite = st.number_input("Máximo:", value=10)
-    
-    if not st.session_state.gerando_infinito:
-        if st.button("▶️ INICIAR GERAÇÃO", type="primary"):
-            st.session_state.gerando_infinito = True
-            st.rerun()
-    else:
-        if st.button("🛑 PARAR AGORA"):
-            st.session_state.gerando_infinito = False
-            st.rerun()
-
-    if len(st.session_state.colecao_paths) > 0:
-        st.download_button("💾 Baixar ZIP", criar_zip(st.session_state.colecao_paths), "colecao.zip")
-
-    if st.session_state.gerando_infinito:
-        mod_inf = ImageGenerationModel.from_pretrained("imagen-3.0-generate-001")
-        while st.session_state.gerando_infinito and len(st.session_state.colecao_paths) < limite:
-            time.sleep(25)
-            salt = ''.join(random.choices(string.ascii_uppercase, k=4))
-            try:
-                res = mod_inf.generate_images(prompt=f"{p_in} --seed {salt}", number_of_images=1, aspect_ratio="9:16")
-                path = os.path.join(PASTA_COLECOES, f"img_{salt}.png")
-                res[0].save(location=path, include_generation_parameters=False)
-                st.session_state.colecao_paths.append(path)
-                st.image(path, width=300)
-            except: pass
-            if not st.session_state.gerando_infinito: break
-
-# --- ABA 4: CAPCUT (CONSERTADA) ---
 elif escolha_aba == "🎬 CapCut":
     st.header("🎬 Editor Estilo CapCut")
     col_u1, col_u2 = st.columns(2)
@@ -295,8 +261,8 @@ elif escolha_aba == "🎬 CapCut":
 
                 out_p = os.path.join(PASTA_SAIDA, "preview.mp4" if is_preview else "final.mp4")
                 video.write_videofile(out_p, fps=15 if is_preview else 24, codec="libx264")
-                video.write_videofile(out_p, fps=24, codec="libx264")
-                registrar_producao(out_name, f"CapCut: {modelo}")
+                
+                registrar_producao(os.path.basename(out_p), f"CapCut: {modelo}")
                 
                 status.update(label="✅ CONCLUÍDO!", state="complete")
                 st.video(out_p)
@@ -305,7 +271,6 @@ elif escolha_aba == "🎬 CapCut":
                     with open(out_p, "rb") as f_down: st.download_button("💾 BAIXAR MP4", f_down, "video.mp4", use_container_width=True)
         except Exception as e: st.error(f"Erro: {e}")
 
-# --- ABA 5: EXTRAÇÃO DE MÍDIA (ÁUDIO E VÍDEO MUDO) ---
 elif escolha_aba == "📂 Extrair Mídia":
     st.header("📂 Extrair Mídia para Biblioteca")
     col_ex1, col_ex2 = st.columns(2)
@@ -335,6 +300,7 @@ elif escolha_aba == "📂 Extrair Mídia":
                     try:
                         with yt_dlp.YoutubeDL(opts) as ydl: ydl.download([url_m])
                         st.success(f"Salvo: {n_final}")
+                        registrar_producao(n_final, f"Extração: {tipo_m}")
                         st.rerun()
                     except Exception as e: st.error(e)
 
@@ -349,6 +315,45 @@ elif escolha_aba == "📂 Extrair Mídia":
             with st.expander(f"📄 {a}"):
                 if ex_alvo == ".mp3": st.audio(os.path.join(p_alvo, a))
                 else: st.video(os.path.join(p_alvo, a))
-                if st.button(f"🗑️ Excluir {a}"):
+                if st.button(f"🗑️ Excluir {a}", key=f"del_{a}"):
                     os.remove(os.path.join(p_alvo, a))
                     st.rerun()
+
+elif escolha_aba == "🖼️ Coleções":
+    st.header("🖼️ Gerador de Coleções")
+    c1, c2, _ = st.columns([1,1,2])
+    if c1.button("✨ Estilo Mineiro"): 
+        st.session_state.prompt_temp = "Jovem fofo mineiro, cyberpunk, 8k."
+        st.rerun()
+    if c2.button("💡 Ideia Aleatória"):
+        st.session_state.prompt_temp = "Futuristic samurai Tokyo, 8k."
+        st.rerun()
+
+    p_in = st.text_area("Comando:", value=st.session_state.prompt_temp)
+    limite = st.number_input("Máximo:", value=10)
+    
+    if not st.session_state.gerando_infinito:
+        if st.button("▶️ INICIAR GERAÇÃO", type="primary"):
+            st.session_state.gerando_infinito = True
+            st.rerun()
+    else:
+        if st.button("🛑 PARAR AGORA"):
+            st.session_state.gerando_infinito = False
+            st.rerun()
+
+    if len(st.session_state.colecao_paths) > 0:
+        st.download_button("💾 Baixar ZIP", criar_zip(st.session_state.colecao_paths), "colecao.zip")
+
+    if st.session_state.gerando_infinito:
+        mod_inf = ImageGenerationModel.from_pretrained("imagen-3.0-generate-001")
+        while st.session_state.gerando_infinito and len(st.session_state.colecao_paths) < limite:
+            time.sleep(25)
+            salt = ''.join(random.choices(string.ascii_uppercase, k=4))
+            try:
+                res = mod_inf.generate_images(prompt=f"{p_in} --seed {salt}", number_of_images=1, aspect_ratio="9:16")
+                path = os.path.join(PASTA_COLECOES, f"img_{salt}.png")
+                res[0].save(location=path, include_generation_parameters=False)
+                st.session_state.colecao_paths.append(path)
+                st.image(path, width=300)
+            except: pass
+            if not st.session_state.gerando_infinito: break
